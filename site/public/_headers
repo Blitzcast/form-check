@@ -1,11 +1,19 @@
 # Security headers for every page and file (Cloudflare static assets reads this file).
 # frame-ancestors / X-Frame-Options: no other site can embed Form Check in a frame, which
 # stops tricks that get someone to allow the camera on a disguised page.
+# Content-Security-Policy: scripts only from this site and MediaPipe's exact package on
+# jsDelivr. jsDelivr serves every npm package, so allowing the whole host would let injected
+# markup load any of them. 'wasm-unsafe-eval' lets the pose model's WebAssembly compile;
+# blob: media is the video file someone picks. Change the version here with app.js's.
+# MediaPipe also posts usage stats (its version and timings, no images) to
+# odml.pa.googleapis.com about a minute in. connect-src leaves that host out on purpose,
+# so "Nothing is uploaded" stays true; the model works without it.
 # Camera is allowed for this site only; microphone and location are off.
 /*
-  Content-Security-Policy: frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/ 'wasm-unsafe-eval'; connect-src 'self' https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/ https://storage.googleapis.com/mediapipe-models/; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(self), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000
+  Cross-Origin-Opener-Policy: same-origin
