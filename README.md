@@ -12,7 +12,7 @@ Needs Node 22+.
 ```bash
 cd site
 npm install
-npm test          # rep-counter unit tests
+npm test          # rep counter, plus row level security in a local Postgres (PGlite)
 npm run dev       # http://localhost:8787, open /app for the camera
 ```
 
@@ -30,5 +30,5 @@ Cloudflare builds from GitHub. In the Worker's **Settings → Build**:
 
 ## Database
 
-`supabase/migrations/` holds the schema. Paste it into the Supabase SQL Editor (or use
-`npx supabase db push`), then turn on anonymous sign-ins under Authentication.
+`supabase/migrations/` holds the schema. Run each file in order in the Supabase SQL Editor
+(or use `npx supabase db push`), then turn on anonymous sign-ins under Authentication.
