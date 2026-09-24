@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "form-check",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  // Files in ./public are served directly (/app serves app.html). Requests that match
+  // no file fall through to the Worker in src/index.ts.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Form Check: check your squat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/css/style.css">
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body class="app-page">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="/">Form Check</a>
+    <nav aria-label="Main">
+      <a href="/#how">How it works</a>
+    </nav>
+  </header>
+
+  <main id="main" class="app">
+    <section class="stage-wrap" aria-label="Camera">
+      <div id="stage" class="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="stage-empty">
+          <p>Press <strong>Start camera</strong>, then stand side-on with your whole body in view.</p>
+          <p>No camera handy? Choose a video of someone squatting, filmed from the side.</p>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="camera" class="button" type="button">Start camera</button>
+        <label class="button secondary file-button">
+          Choose a video
+          <input id="file" type="file" accept="video/*">
+        </label>
+        <button id="reset" class="button secondary" type="button">Reset count</button>
+      </div>
+      <p class="fine">Your video stays on this device. Nothing is uploaded.</p>
+    </section>
+
+    <section class="panel" aria-label="Results">
+      <div class="rep-count">
+        <span id="reps" class="rep-total" aria-live="polite">0</span>
+        <span class="rep-total-label">reps</span>
+      </div>
+      <p id="status" class="status" data-tone="info" aria-live="polite">Press Start camera to begin.</p>
+      <dl class="live">
+        <div><dt>Knee</dt><dd id="knee">–</dd></div>
+        <div><dt>Lean</dt><dd id="lean">–</dd></div>
+        <div><dt>Frames/s</dt><dd id="fps">–</dd></div>
+      </dl>
+      <h2 class="log-title">Your reps</h2>
+      <p id="rep-empty" class="empty">Finished reps show up here, newest first.</p>
+      <ol id="rep-log" class="rep-log"></ol>
+    </section>
+  </main>
+</body>
+</html>

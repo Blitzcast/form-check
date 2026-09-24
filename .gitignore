@@ -1,0 +1,51 @@
+# Env / secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.wrangler/
+*.pem
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+
+# Video and recordings: never commit footage of people
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi
+recordings/
+eval/raw/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test / coverage
+coverage/
+
+# Editor / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Caches
+.cache/
+*.tsbuildinfo
