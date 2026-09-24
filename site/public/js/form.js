@@ -2,7 +2,7 @@
 // Pure functions and no DOM, so the same code runs in the browser and in node tests.
 // Every threshold is a guess: not tuned, not validated. Bump RULES_VERSION when one changes.
 
-export const RULES_VERSION = "v0-guess";
+export const RULES_VERSION = "v1-guess";
 
 export const RULES = {
   downKneeAngle: 110, // knee angle below this: the rep has reached its bottom half
@@ -11,9 +11,9 @@ export const RULES = {
   maxHeelLift: 0.03, // share of leg length (thigh + shin)
   minVisibility: 0.5, // MediaPipe's 0-1 visibility per landmark
   smoothing: 0.5, // weight of the newest frame in the moving average
-  // Setup guards, checked while standing. From the side, left and right joints overlap.
-  maxSideSpread: 0.5, // shoulder/hip left-right gap vs torso length; wider = front view
-  minHipToAnkleDrop: 0.35, // ankle below hip by this share of leg length, or the video is rotated
+  // Setup guards, checked between reps. From the side, left and right joints overlap.
+  maxShoulderSpread: 0.45, // left-right shoulder gap vs torso length; wider = facing the camera
+  minHipToAnkleDrop: 0.35, // standing, ankle below hip by this share of leg length, or the video is rotated
   maxStanceSpread: 0.5, // ankle gap vs leg length; wider = lunge or split stance
 };
 
@@ -59,6 +59,7 @@ export function createSquatCounter(rules = RULES) {
   let heelBaseline = null;
   let lastUpAt = null;
   let current = null;
+  let rotated = null; // verdict from the last straight-legged frame; null until there is one
   const reps = [];
   let frames = 0;
   let visibleFrames = 0;
@@ -83,15 +84,21 @@ export function createSquatCounter(rules = RULES) {
     const heel = px("heel");
     const legLength = dist(hip, knee) + dist(knee, ankle);
 
-    // Refuse to grade setups the rules can't judge. Checked only between reps.
+    // Refuse to grade setups the rules can't judge. Checked only between reps, but a fast
+    // or low-frame-rate rep can reach the bottom before the smoothed angle says "down", so
+    // every guard must also hold at the bottom of a deep squat.
     if (phase === "up") {
       const gap = (j) => Math.abs(landmarks[SIDES.left[j]].x - landmarks[SIDES.right[j]].x) * width;
-      const torsoLength = dist(shoulder, hip);
-      // Upright video: ankles well below the hip (even at the bottom of a squat), shoulders above it.
-      const upright = (ankle.y - hip.y) / legLength > rules.minHipToAnkleDrop && hip.y > shoulder.y;
+      // Upright video: standing straight, the ankles are far below the hip and the shoulders
+      // above it. A deep squat can sink the hip to ankle height, so the call is made only on
+      // straight-legged frames and holds until the next one.
+      if (rotated === null || angleAt(hip, knee, ankle) > rules.upKneeAngle) {
+        rotated = !((ankle.y - hip.y) / legLength > rules.minHipToAnkleDrop && hip.y > shoulder.y);
+      }
       let problem = null;
-      if (!upright) problem = "rotated";
-      else if ((gap("shoulder") + gap("hip")) / 2 / torsoLength > rules.maxSideSpread) problem = "front-view";
+      if (rotated) problem = "rotated";
+      // Shoulders only: MediaPipe puts the hip points close together even front-on.
+      else if (gap("shoulder") / dist(shoulder, hip) > rules.maxShoulderSpread) problem = "front-view";
       else if (gap("ankle") / legLength > rules.maxStanceSpread) problem = "split-stance";
       if (problem) {
         smoothed = null;

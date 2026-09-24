@@ -30,15 +30,41 @@ function pose({ shinTilt = 0, thigh = 0, lean = 5, heelLift = 0, visibility = 0.
   return lm;
 }
 
-/** Front view: both sides visible and a torso-width apart. */
-function frontPose() {
+/**
+ * Front view: both sides visible, left and right joints side by side.
+ * Spreads are the left-right gap as a share of torso length (300px). The defaults are what
+ * the real pose model returned for a person standing front-on 2-3 m away: its hip points
+ * sit much closer together than the shoulders.
+ */
+function frontPose({ shoulder = 0.515, hip = 0.379, other = 0.28 } = {}) {
   const lm = pose(standing);
+  const spread = { 11: shoulder, 23: hip };
   for (const [l, r] of [[11, 12], [23, 24], [25, 26], [27, 28], [29, 30]]) {
-    lm[l] = { ...lm[l], x: lm[l].x - 0.09 };
-    lm[r] = { ...lm[l], x: lm[l].x + 0.18, visibility: 0.95 };
+    const gap = ((spread[l] ?? other) * 300) / W;
+    lm[l] = { ...lm[l], x: lm[l].x - gap / 2 };
+    lm[r] = { ...lm[l], x: lm[l].x + gap, visibility: 0.95 };
   }
   return lm;
 }
+
+/** Feeds `count` reps sampled at `fps`, each `seconds` long, easing into `bottom` and back. */
+function repsAt(counter, { bottom, fps, seconds, count, transform = (lm) => lm }) {
+  let t = 0;
+  const feed = (p) => counter.update(transform(pose(p)), W, H, (t += 1000 / fps));
+  for (let i = 0; i < fps; i++) feed(standing);
+  for (let r = 0; r < count; r++) {
+    const n = Math.round(seconds * fps);
+    for (let i = 0; i < n; i++) {
+      const f = (1 - Math.cos((2 * Math.PI * (i + 0.5)) / n)) / 2;
+      const p = {};
+      for (const k of Object.keys(bottom)) p[k] = (standing[k] ?? 0) + f * (bottom[k] - (standing[k] ?? 0));
+      feed(p);
+    }
+    for (let i = 0; i < Math.ceil(0.4 * fps); i++) feed(standing);
+  }
+}
+
+const deepSquat = { shinTilt: 40, thigh: 125, lean: 40 };
 
 const standing = { shinTilt: 0, thigh: 0, lean: 5 };
 
@@ -156,6 +182,41 @@ test("full squats in a rotated video are never counted", () => {
     }
     assert.equal(c.summary().counted_reps, 0);
   }
+});
+
+test("deep squats at a phone's frame rate are counted and reach depth", () => {
+  // At 5 fps the smoothed knee angle lags a frame behind, so the setup guards see the
+  // bottom of the squat. A hip-height guard used to call that "rotated" and drop the frames.
+  for (const fps of [5, 6, 8, 10, 30]) {
+    const c = createSquatCounter();
+    repsAt(c, { bottom: deepSquat, fps, seconds: 1.2, count: 5 });
+    const s = c.summary();
+    assert.equal(s.counted_reps, 5, `${fps} fps`);
+    assert.ok(s.reps.every((r) => r.depth_ok), `${fps} fps: depth`);
+  }
+});
+
+test("deep squats in a rotated video are never counted, at any frame rate", () => {
+  const rotations = [
+    (lm) => lm.map((p) => ({ ...p, x: 1 - p.y, y: p.x })),
+    (lm) => lm.map((p) => ({ ...p, x: p.y, y: 1 - p.x })),
+    (lm) => lm.map((p) => ({ ...p, x: 1 - p.x, y: 1 - p.y })),
+  ];
+  for (const transform of rotations) {
+    for (const fps of [5, 30]) {
+      const c = createSquatCounter();
+      repsAt(c, { bottom: deepSquat, fps, seconds: 1.2, count: 3, transform });
+      assert.equal(c.summary().counted_reps, 0);
+    }
+  }
+});
+
+test("front view is refused with the pose model's real proportions", () => {
+  // Averaging shoulders with the model's narrow hips used to land under the limit.
+  assert.equal(createSquatCounter().update(frontPose(), W, H, 0).status, "front-view");
+  // Turned about 45 degrees from side-on is still refused; closer to side-on is graded.
+  assert.equal(createSquatCounter().update(frontPose({ shoulder: 0.5, hip: 0.32, other: 0.17 }), W, H, 0).status, "front-view");
+  assert.equal(createSquatCounter().update(frontPose({ shoulder: 0.37, hip: 0.23, other: 0.1 }), W, H, 0).status, "tracking");
 });
 
 test("a normal side view passes the setup guards", () => {
