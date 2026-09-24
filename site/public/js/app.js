@@ -27,10 +27,17 @@ const ui = {
 
 const COLORS = { good: "#3fbf7f", fix: "#ff6b5e", joint: "#f2f4f1", line: "rgba(242, 244, 241, 0.75)" };
 const JOINT_NAMES = { shoulder: "shoulder", hip: "hip", knee: "knee", ankle: "ankle", heel: "heel" };
+// Setups form.js refuses to grade, and what to tell the person.
+const SETUP_PROBLEMS = {
+  "front-view": "You're facing the camera. Turn side-on: Form Check grades squats from the side.",
+  rotated: "The picture looks sideways or upside down. Hold the phone upright, or use an upright video.",
+  "split-stance": "Your feet look split, like a lunge. Form Check only grades squats, so stand with your feet side by side.",
+};
 
 let landmarker = null;
 let counter = createSquatCounter();
 let stream = null;
+let videoUrl = null;
 let running = false;
 let lastFrameTime = -1;
 let fpsFrames = 0;
@@ -48,7 +55,7 @@ async function loadModel() {
   const options = (delegate) => ({
     baseOptions: { modelAssetPath: MODEL, delegate },
     runningMode: "VIDEO",
-    numPoses: 1,
+    numPoses: 2, // so a second person is noticed instead of silently swapped in
   });
   try {
     landmarker = await PoseLandmarker.createFromOptions(vision, options("GPU"));
@@ -56,6 +63,23 @@ async function loadModel() {
     landmarker = await PoseLandmarker.createFromOptions(vision, options("CPU"));
   }
   return landmarker;
+}
+
+/** Loads the model, or explains the failure. Returns false if it didn't load. */
+async function ensureModel() {
+  try {
+    await loadModel();
+    return true;
+  } catch {
+    setStatus("The pose model didn't load. Check your internet connection, then try again.", "problem");
+    return false;
+  }
+}
+
+/** Frees the previously chosen video file so repeated picks don't pile up in memory. */
+function releaseVideo() {
+  if (videoUrl) URL.revokeObjectURL(videoUrl);
+  videoUrl = null;
 }
 
 function stopCamera() {
@@ -92,13 +116,18 @@ ui.camera.addEventListener("click", async () => {
     setStatus("Camera stopped. Your reps stay listed until you reset.");
     return;
   }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus("This browser can't use the camera here. Open the page in Chrome, Edge or Safari, or choose a video file.", "problem");
+    return;
+  }
+  if (!(await ensureModel())) return;
   try {
-    await loadModel();
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     });
     video.removeAttribute("src");
+    releaseVideo();
     video.srcObject = stream;
     await video.play();
     ui.camera.textContent = "Stop camera";
@@ -113,11 +142,13 @@ ui.camera.addEventListener("click", async () => {
 ui.file.addEventListener("change", async () => {
   const file = ui.file.files?.[0];
   if (!file) return;
+  if (!(await ensureModel())) return;
   try {
-    await loadModel();
     stopCamera();
     video.srcObject = null;
-    video.src = URL.createObjectURL(file);
+    releaseVideo();
+    videoUrl = URL.createObjectURL(file);
+    video.src = videoUrl;
     video.muted = true;
     await video.play();
     begin(false);
@@ -153,10 +184,16 @@ function tick() {
       canvas.height = h;
     }
     const now = performance.now();
-    const landmarks = landmarker.detectForVideo(video, now).landmarks[0];
-    const result = counter.update(landmarks, w, h, now);
-    draw(landmarks, result, w, h);
-    showResult(result);
+    const people = landmarker.detectForVideo(video, now).landmarks;
+    if (people.length > 1) {
+      // Don't guess which person to follow: that would invent or drop reps.
+      ctx.clearRect(0, 0, w, h);
+      setStatus("Two people are in view. Form Check follows one person, so ask others to step out of frame.", "problem");
+    } else {
+      const result = counter.update(people[0], w, h, now);
+      draw(people[0], result, w, h);
+      showResult(result);
+    }
     countFrame(now);
   }
   requestAnimationFrame(tick);
@@ -203,6 +240,10 @@ function showResult(result) {
   if (result.status === "not-visible") {
     const names = result.hidden.map((j) => JOINT_NAMES[j]).join(", ");
     setStatus(`Turn side-on and step back. The camera can't see your ${names}.`, "problem");
+    return;
+  }
+  if (SETUP_PROBLEMS[result.status]) {
+    setStatus(SETUP_PROBLEMS[result.status], "problem");
     return;
   }
   ui.knee.textContent = `${Math.round(result.kneeAngle)}°`;

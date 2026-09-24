@@ -22,12 +22,21 @@ function pose({ shinTilt = 0, thigh = 0, lean = 5, heelLift = 0, visibility = 0.
   const heel = { x: ankle.x - 30, y: ankle.y + 10 - heelLift };
 
   const lm = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.1 }));
-  const put = (i, p) => (lm[i] = { x: p.x / W, y: p.y / H, z: 0, visibility });
-  put(11, shoulder);
-  put(23, hip);
-  put(25, knee);
-  put(27, ankle);
-  put(29, heel);
+  const put = (i, p, v = visibility) => (lm[i] = { x: p.x / W, y: p.y / H, z: 0, visibility: v });
+  const near = [shoulder, hip, knee, ankle, heel];
+  [11, 23, 25, 27, 29].forEach((i, n) => put(i, near[n]));
+  // Far side: hidden behind the near side, so it overlaps it and is barely visible.
+  [12, 24, 26, 28, 30].forEach((i, n) => put(i, { x: near[n].x + 8, y: near[n].y }, 0.3));
+  return lm;
+}
+
+/** Front view: both sides visible and a torso-width apart. */
+function frontPose() {
+  const lm = pose(standing);
+  for (const [l, r] of [[11, 12], [23, 24], [25, 26], [27, 28], [29, 30]]) {
+    lm[l] = { ...lm[l], x: lm[l].x - 0.09 };
+    lm[r] = { ...lm[l], x: lm[l].x + 0.18, visibility: 0.95 };
+  }
   return lm;
 }
 
@@ -108,6 +117,50 @@ test("counts reps and grades each check", () => {
     assert.ok(r.duration_ms > 0);
     assert.ok(r.min_knee_angle > 0 && r.min_knee_angle < 110);
   }
+});
+
+test("setups it can't judge are refused, not graded", () => {
+  const rotate90 = (lm) => lm.map((p) => ({ ...p, x: 1 - p.y, y: p.x }));
+  const upsideDown = (lm) => lm.map((p) => ({ ...p, x: 1 - p.x, y: 1 - p.y }));
+  const lunge = () => {
+    const lm = pose(standing);
+    lm[28] = { ...lm[28], x: lm[27].x - 0.35 }; // back foot a stride behind
+    return lm;
+  };
+  const cases = [
+    ["front-view", frontPose],
+    ["rotated", () => rotate90(pose(standing))],
+    ["rotated", () => upsideDown(pose(standing))],
+    ["split-stance", lunge],
+  ];
+  for (const [status, make] of cases) {
+    const c = createSquatCounter();
+    assert.equal(c.update(make(), W, H, 0).status, status);
+    assert.equal(c.summary().counted_reps, 0);
+  }
+});
+
+test("full squats in a rotated video are never counted", () => {
+  const rotations = [
+    (lm) => lm.map((p) => ({ ...p, x: 1 - p.y, y: p.x })), // 90° one way
+    (lm) => lm.map((p) => ({ ...p, x: p.y, y: 1 - p.x })), // 90° the other way
+    (lm) => lm.map((p) => ({ ...p, x: 1 - p.x, y: 1 - p.y })), // upside down
+  ];
+  for (const rotate of rotations) {
+    const c = createSquatCounter();
+    let t = 0;
+    for (let r = 0; r < 3; r++) {
+      for (const d of [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0, 0]) {
+        c.update(rotate(pose({ shinTilt: 30 * d, thigh: 100 * d, lean: 5 + 25 * d })), W, H, (t += 33));
+      }
+    }
+    assert.equal(c.summary().counted_reps, 0);
+  }
+});
+
+test("a normal side view passes the setup guards", () => {
+  const c = createSquatCounter();
+  assert.equal(c.update(pose(standing), W, H, 0).status, "tracking");
 });
 
 test("frames with hidden joints are skipped, not counted", () => {

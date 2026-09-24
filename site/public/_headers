@@ -1,0 +1,11 @@
+# Security headers for every page and file (Cloudflare static assets reads this file).
+# frame-ancestors / X-Frame-Options: no other site can embed Form Check in a frame, which
+# stops tricks that get someone to allow the camera on a disguised page.
+# Camera is allowed for this site only; microphone and location are off.
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000

@@ -11,6 +11,10 @@ export const RULES = {
   maxHeelLift: 0.03, // share of leg length (thigh + shin)
   minVisibility: 0.5, // MediaPipe's 0-1 visibility per landmark
   smoothing: 0.5, // weight of the newest frame in the moving average
+  // Setup guards, checked while standing. From the side, left and right joints overlap.
+  maxSideSpread: 0.5, // shoulder/hip left-right gap vs torso length; wider = front view
+  minHipToAnkleDrop: 0.35, // ankle below hip by this share of leg length, or the video is rotated
+  maxStanceSpread: 0.5, // ankle gap vs leg length; wider = lunge or split stance
 };
 
 // BlazePose landmark indices for each side of the body.
@@ -78,6 +82,22 @@ export function createSquatCounter(rules = RULES) {
     const ankle = px("ankle");
     const heel = px("heel");
     const legLength = dist(hip, knee) + dist(knee, ankle);
+
+    // Refuse to grade setups the rules can't judge. Checked only between reps.
+    if (phase === "up") {
+      const gap = (j) => Math.abs(landmarks[SIDES.left[j]].x - landmarks[SIDES.right[j]].x) * width;
+      const torsoLength = dist(shoulder, hip);
+      // Upright video: ankles well below the hip (even at the bottom of a squat), shoulders above it.
+      const upright = (ankle.y - hip.y) / legLength > rules.minHipToAnkleDrop && hip.y > shoulder.y;
+      let problem = null;
+      if (!upright) problem = "rotated";
+      else if ((gap("shoulder") + gap("hip")) / 2 / torsoLength > rules.maxSideSpread) problem = "front-view";
+      else if (gap("ankle") / legLength > rules.maxStanceSpread) problem = "split-stance";
+      if (problem) {
+        smoothed = null;
+        return { status: problem, side, phase, reps: reps.length };
+      }
+    }
 
     smoothed = {
       knee: ema(smoothed?.knee ?? null, angleAt(hip, knee, ankle)),
