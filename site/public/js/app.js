@@ -35,21 +35,29 @@ const SETUP_PROBLEMS = {
 };
 
 let landmarker = null;
+let landmarkerLoading = null; // one shared load, so a second press doesn't start another
 let counter = createSquatCounter();
 let stream = null;
+let starting = false;
 let videoUrl = null;
+let pausedWhileHidden = false;
 let running = false;
 let lastFrameTime = -1;
+let lastTimestamp = 0;
 let fpsFrames = 0;
 let fpsSince = performance.now();
 
+/** Writes text only when it changes: rewriting a live region every frame makes screen readers repeat it. */
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
 function setStatus(text, tone = "info") {
-  ui.status.textContent = text;
+  setText(ui.status, text);
   ui.status.dataset.tone = tone;
 }
 
 async function loadModel() {
-  if (landmarker) return landmarker;
   setStatus("Loading the pose model. This takes a few seconds the first time.", "wait");
   const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE);
   const options = (delegate) => ({
@@ -58,19 +66,19 @@ async function loadModel() {
     numPoses: 2, // so a second person is noticed instead of silently swapped in
   });
   try {
-    landmarker = await PoseLandmarker.createFromOptions(vision, options("GPU"));
+    return await PoseLandmarker.createFromOptions(vision, options("GPU"));
   } catch {
-    landmarker = await PoseLandmarker.createFromOptions(vision, options("CPU"));
+    return await PoseLandmarker.createFromOptions(vision, options("CPU"));
   }
-  return landmarker;
 }
 
 /** Loads the model, or explains the failure. Returns false if it didn't load. */
 async function ensureModel() {
   try {
-    await loadModel();
+    landmarker ??= await (landmarkerLoading ??= loadModel());
     return true;
   } catch {
+    landmarkerLoading = null; // so the next press tries again
     setStatus("The pose model didn't load. Check your internet connection, then try again.", "problem");
     return false;
   }
@@ -111,6 +119,9 @@ function begin(mirrored) {
 }
 
 ui.camera.addEventListener("click", async () => {
+  // A second press while the first is still starting would open a second camera stream,
+  // and Stop camera could only close one of them: the camera light would stay on.
+  if (starting) return;
   if (stream) {
     stopCamera();
     setStatus("Camera stopped. Your reps stay listed until you reset.");
@@ -120,7 +131,17 @@ ui.camera.addEventListener("click", async () => {
     setStatus("This browser can't use the camera here. Open the page in Chrome, Edge or Safari, or choose a video file.", "problem");
     return;
   }
+  starting = true;
+  try {
+    await startCamera();
+  } finally {
+    starting = false;
+  }
+});
+
+async function startCamera() {
   if (!(await ensureModel())) return;
+  setStatus("Allow camera access if your browser asks.", "wait");
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -137,10 +158,11 @@ ui.camera.addEventListener("click", async () => {
     stopCamera();
     setStatus(cameraError(err), "problem");
   }
-});
+}
 
 ui.file.addEventListener("change", async () => {
   const file = ui.file.files?.[0];
+  ui.file.value = ""; // so choosing the same file again still counts as a change
   if (!file) return;
   if (!(await ensureModel())) return;
   try {
@@ -151,6 +173,11 @@ ui.file.addEventListener("change", async () => {
     video.src = videoUrl;
     video.muted = true;
     await video.play();
+    if (!video.videoWidth) {
+      video.pause();
+      setStatus(`${file.name} has sound but no picture. Choose a video of someone squatting, filmed from the side.`, "problem");
+      return;
+    }
     begin(false);
     setStatus(`Checking ${file.name}.`);
   } catch (err) {
@@ -173,8 +200,21 @@ ui.reset.addEventListener("click", () => {
 
 window.addEventListener("pagehide", stopCamera);
 
+// A hidden tab gets no animation frames, but a video file keeps playing, so its reps would
+// go uncounted. Pause it until the tab is back.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && videoUrl && !video.paused) {
+    video.pause();
+    pausedWhileHidden = true;
+  } else if (!document.hidden && pausedWhileHidden) {
+    pausedWhileHidden = false;
+    video.play().catch(() => {});
+  }
+});
+
 function tick() {
   if (!running) return;
+  requestAnimationFrame(tick); // first, so one bad frame can't stop the loop
   if (landmarker && video.readyState >= 2 && video.currentTime !== lastFrameTime && !video.paused) {
     lastFrameTime = video.currentTime;
     const w = video.videoWidth;
@@ -183,8 +223,17 @@ function tick() {
       canvas.width = w;
       canvas.height = h;
     }
-    const now = performance.now();
-    const people = landmarker.detectForVideo(video, now).landmarks;
+    // MediaPipe needs strictly increasing timestamps, and privacy settings (Tor Browser,
+    // Firefox's resistFingerprinting) round performance.now() coarsely enough to repeat one.
+    const now = Math.max(performance.now(), lastTimestamp + 1);
+    lastTimestamp = now;
+    let people;
+    try {
+      people = landmarker.detectForVideo(video, now).landmarks;
+    } catch (err) {
+      setStatus(`The pose model stopped (${err?.message ?? "unknown error"}). Reload the page to start again.`, "problem");
+      return;
+    }
     if (people.length > 1) {
       // Don't guess which person to follow: that would invent or drop reps.
       ctx.clearRect(0, 0, w, h);
@@ -196,7 +245,6 @@ function tick() {
     }
     countFrame(now);
   }
-  requestAnimationFrame(tick);
 }
 
 function draw(landmarks, result, w, h) {
@@ -248,7 +296,7 @@ function showResult(result) {
   }
   ui.knee.textContent = `${Math.round(result.kneeAngle)}°`;
   ui.lean.textContent = `${Math.round(result.torsoLean)}°`;
-  ui.reps.textContent = String(result.reps);
+  setText(ui.reps, String(result.reps));
   if (result.completed) addRep(result.completed);
   else if (ui.status.dataset.tone === "problem" || ui.status.dataset.tone === "wait") {
     setStatus(result.phase === "down" ? "Tracking. Stand all the way up to finish the rep." : "Tracking. Squat when you're ready.");
