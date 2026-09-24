@@ -24,6 +24,17 @@ Kill condition: rep count within ±1 on fewer than 80% of sets after two rounds 
 Limit: the labeller isn't a coach. Get at least one set labelled by someone with coaching
 experience before trusting the precision numbers.
 
+# Why an on-device pose model, not a cloud video model
+We considered sending video to a hosted video-language model (e.g. NVIDIA Cosmos Reason).
+We chose MediaPipe Pose in the browser instead:
+- Speed: it grades every frame live; a hosted model takes seconds per clip
+- Precision: it measures joint positions; a language model estimates them by looking
+- Privacy: video never leaves the device; a hosted model needs the clip uploaded
+- Cost and limits: free with no rate limits; a hosted model has quotas and needs a server key
+A hosted video model would add scene understanding (wrong exercise, bad camera angle). We
+cover the common cases with setup guards (front view, rotated video, split stance) and
+could add an opt-in "second opinion" review later.
+
 # Out of scope
 - Other exercises: squat first; each new exercise is new rules and new labels
 - Front-view checks (knees caving in): needs a second camera angle
